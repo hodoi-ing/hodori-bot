@@ -18,7 +18,13 @@ import asyncio
 import urllib.request
 import html
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+
+try:
+    from zoneinfo import ZoneInfo
+    _KST = ZoneInfo("Asia/Seoul")
+except Exception:
+    _KST = timezone(timedelta(hours=9))
 
 try:
     import discord
@@ -46,6 +52,18 @@ bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 WATCH_KEYWORDS = ["백컨트리 360", "캠핑 텐트 특가"]
 
+# 매일 KST 09:00 / 18:00 정기 AI 브리핑 키워드
+BRIEFING_KEYWORDS = ["AI 모델 최신 이슈", "OpenAI Claude 최신 소식"]
+_fired_briefing: set[str] = set()  # "YYYY-MM-DD|HH" 중복 발송 방지
+
+
+def _kst_now() -> datetime:
+    return datetime.now(_KST)
+
+
+def _briefing_key(now: datetime) -> str:
+    return f"{now.strftime('%Y-%m-%d')}|{now.hour}"
+
 
 @bot.event
 async def on_ready():
@@ -56,6 +74,8 @@ async def on_ready():
     print("=" * 60)
     if not auto_radar_loop.is_running():
         auto_radar_loop.start()
+    if not scheduled_briefing_loop.is_running():
+        scheduled_briefing_loop.start()
 
 
 # --- 자연어 메시지 리스너 ("도리야 ~", "호도리야 ~", @멘션) ---
@@ -210,8 +230,9 @@ async def help_cmd(ctx):
             "**📌 명령어 방식**\n"
             "• `!도리 [키워드]` : 5대 레이더 실시간 리서치 + 4단계 팩트 리포트\n"
             "• `!ai [질문]` : Gemini AI 자유 대화, 코딩, 번역 비서\n\n"
-            "**⏰ 30분 정기 브리핑**\n"
-            "• 컴퓨터를 꺼도 30분마다 주요 감시 핫딜/뉴스가 자동 발송됩니다."
+            "**⏰ 정기 브리핑**\n"
+            "• 매일 아침 09:00 / 저녁 18:00 (KST) AI 모델 최신 이슈 자동 발송\n"
+            "• 30분마다 주요 감시 핫딜/뉴스 자동 발송 (컴퓨터를 꺼도 계속)"
         ),
         color=0x10B981
     )
@@ -246,6 +267,56 @@ async def auto_radar_loop():
 
     except Exception as e:
         print(f"[!] 30분 정기 브리핑 에러: {e}")
+
+
+@tasks.loop(minutes=1)
+async def scheduled_briefing_loop():
+    """매일 아침 09:00 / 저녁 18:00 (KST) 정기 AI 이슈 브리핑.
+
+    슬롯 시작 후 4분까지 발송 기회를 주고, 날짜+시각 키로 하루 1회만 발송한다.
+    채널 ID 가 없으면 디스코드 웹훅으로 폴백한다.
+    """
+    now_kst = _kst_now()
+    if not doribogo_bot.is_briefing_slot(now_kst):
+        return
+    key = _briefing_key(now_kst)
+    if key in _fired_briefing:
+        return
+    _fired_briefing.add(key)
+    if len(_fired_briefing) > 14:  # 최근 7일치 슬롯만 유지
+        for old in sorted(_fired_briefing)[:-14]:
+            _fired_briefing.discard(old)
+
+    print(f"[*] KST {now_kst.strftime('%Y-%m-%d %H:%M')} 정기 AI 브리핑 시작")
+    try:
+        channel = None
+        if DISCORD_CHANNEL_ID:
+            channel = bot.get_channel(int(DISCORD_CHANNEL_ID))
+        today_str = now_kst.strftime("%m월 %d일")
+        loop = asyncio.get_event_loop()
+
+        for kw in BRIEFING_KEYWORDS:
+            card = await loop.run_in_executor(None, doribogo_bot.run_full_doribogo, kw)
+            if channel is not None:
+                embed = discord.Embed(
+                    title=f"🔥 [{today_str} 정기 AI 브리핑] {kw}",
+                    description=card,
+                    color=0xFF6B00,
+                )
+                embed.set_footer(text=f"hodori bot • KST 정기 브리핑 {now_kst.strftime('%H:%M')}")
+                await channel.send(embed=embed)
+            else:
+                ok = doribogo_bot.send_discord(f"🔥 [{today_str} 정기 AI 브리핑] {kw}", card)
+                print(f"[*] 웹훅 폴백 발송: {kw} → {ok}")
+            await asyncio.sleep(2)
+        print("[*] 정기 AI 브리핑 완료")
+    except Exception as e:
+        print(f"[!] 정기 AI 브리핑 에러: {e}")
+
+
+@scheduled_briefing_loop.before_loop
+async def _briefing_before_loop():
+    await bot.wait_until_ready()
 
 
 @auto_radar_loop.before_loop

@@ -18,6 +18,16 @@ TELEGRAM_BOT_TOKEN=os.environ.get('TELEGRAM_BOT_TOKEN','').strip()
 TELEGRAM_CHAT_ID=os.environ.get('TELEGRAM_CHAT_ID','').strip()
 GEMINI_API_KEY=os.environ.get('GEMINI_API_KEY','').strip() or os.environ.get('GEMINI_','').strip()
 
+# KST 정기 AI 브리핑 슬롯: 아침 09:00 / 저녁 18:00
+BRIEFING_SLOT_HOURS = (9, 18)
+# 슬롯 시작 후 몇 분까지 발송 기회를 허용할지 (프로세스 재시작 지연 대비)
+BRIEFING_SLOT_GRACE_MINUTES = 4
+
+
+def is_briefing_slot(now: datetime) -> bool:
+    """정기 브리핑 시각인지 판단. now 는 KST tz-aware datetime 을 넘긴다."""
+    return now.hour in BRIEFING_SLOT_HOURS and now.minute <= BRIEFING_SLOT_GRACE_MINUTES
+
 ISSUE_RADARS={
  'TECH_SNS':('📱 공식 SNS & 릴리즈 속보','(공식 OR 출시 OR X OR 트위터 OR 스레드 OR release OR changelog)',10),
  'FINE_PRINT':('🔍 숨은 각주 & 쿼터/비용 정책','(사용량 OR 한도 OR quota OR 가격 OR 버그 OR 누수 OR 삭감)',9),
