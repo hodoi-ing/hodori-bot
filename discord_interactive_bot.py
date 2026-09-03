@@ -113,13 +113,21 @@ async def on_message(message):
             return
 
         # 지능형 라우팅: 쇼핑 최저가 검색 vs 테크 이슈 리서치 vs 일반 대화
-        is_shopping_intent = any(w in cleaned_query for w in ["최저가", "가격비교", "얼마", "사려는데", "최저", "핫딜", "구매가"])
+        # '최저가'라고 딱딱하게 말하지 않아도 상품 검색 의도를 폭넓게 감지
+        is_shopping_intent = any(w in cleaned_query for w in [
+            "최저가", "가격비교", "얼마", "사려는데", "최저", "핫딜", "구매가", "시세", "얼마해", "얼마야",
+            "사고싶", "살래", "살까", "가격", "얼마정도", "검색", "찾아", "알아봐"
+        ]) and not any(w in cleaned_query for w in ["뉴스", "스레드", "브리핑", "논문", "이슈"])
         is_research_intent = any(w in cleaned_query for w in [
-            "특가", "가격", "이슈", "뉴스", "속보", "최신", "시세", "알아봐", "찾아봐", "정리해줘", "소식", "스레드"
+            "이슈", "뉴스", "속보", "최신", "정리해줘", "소식", "스레드", "논문", "브리핑"
         ])
 
         if is_shopping_intent:
-            search_term = re.sub(r"(최저가|가격비교|얼마야|얼마|알아봐줘|찾아줘|사려는데)\s*", "", cleaned_query).strip() or cleaned_query
+            search_term = re.sub(
+                r"(최저가|가격비교|얼마야|얼마해|얼마정도|얼마|알아봐줘|찾아줘|사려는데|사고싶어|살까|가격|검색해줘|검색|시세|하는데|있어|있니|좀|해줘|보여줘|[?!\.,~])\s*",
+                "",
+                cleaned_query
+            ).strip() or cleaned_query
             await handle_shopping_search(message.channel, search_term)
         elif is_research_intent:
             await handle_doribogo_research(message.channel, cleaned_query)
