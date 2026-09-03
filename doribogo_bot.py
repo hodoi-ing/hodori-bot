@@ -49,7 +49,7 @@ THREADS_CREATORS = ["choi.openai", "unclejobs.ai", "h2smusic"]
 
 
 def _fetch_threads_creators() -> list[dict]:
-    """핵심 테크 크리에이터 3인(@choi.openai, @unclejobs.ai, @h2smusic)의 최신 스레드를 수집한다."""
+    """핵심 테크 크리에이터 3인(@choi.openai, @unclejobs.ai, @h2smusic)의 스레드에서 가장 반응(좋아요/댓글) 좋은 대표 이슈를 그대로 추출한다."""
     out: list[dict] = []
     try:
         from playwright.sync_api import sync_playwright
@@ -65,16 +65,51 @@ def _fetch_threads_creators() -> list[dict]:
                     page.goto(f"https://www.threads.net/@{user}", wait_until="domcontentloaded", timeout=12000)
                     page.wait_for_timeout(2000)
                     containers = page.locator('div[data-pressable-container="true"]').all()
-                    for c in containers[:3]:
-                        txt = c.inner_text().strip().replace("\n", " ")
-                        if len(txt) > 25:
-                            # 고정글 표시 제거 및 앞단 정리
-                            cleaned = re.sub(r'^(고정됨\s*)?', '', txt)
-                            out.append({
-                                'title': cleaned[:160],
-                                'link': f"https://www.threads.net/@{user}",
+                    user_posts: list[dict] = []
+                    for c in containers[:6]:
+                        lines = [l.strip() for l in c.inner_text().splitlines() if l.strip()]
+                        if not lines:
+                            continue
+                        # 좋아요 수 추출 (마지막 줄 부근 숫자 파싱)
+                        likes = 0
+                        for l in reversed(lines[-5:]):
+                            if l.isdigit():
+                                likes = int(l)
+                                break
+                            elif re.match(r'^\d+(\.\d+)?[Kk천만]?$', l):
+                                val = l.replace('K', '').replace('k', '').replace('천', '')
+                                try:
+                                    likes = int(float(val) * 1000)
+                                except Exception:
+                                    pass
+                                break
+
+                        # 게시물 링크
+                        links = c.locator('a').all()
+                        hrefs = [l.get_attribute('href') for l in links if l.get_attribute('href') and '/post/' in l.get_attribute('href')]
+                        post_url = f"https://www.threads.net{hrefs[0]}" if hrefs else f"https://www.threads.net/@{user}"
+
+                        # 본문 정리 (유저명, 시간단위, 고정표시 제외)
+                        body_lines = [
+                            l for l in lines
+                            if l != user
+                            and not l.isdigit()
+                            and not re.match(r'^\d+(분|시간|일|d|h|m)$', l)
+                            and l not in ['고정됨', 'Translate', '번역']
+                        ]
+                        content = ' '.join(body_lines)
+                        if len(content) > 30:
+                            user_posts.append({
+                                'title': content[:300],
+                                'link': post_url,
+                                'likes': likes,
                                 'source': f"Threads @{user}",
                             })
+
+                    # 반응(좋아요)이 가장 높은 베스트 글 1~2건 선정
+                    if user_posts:
+                        user_posts.sort(key=lambda x: x['likes'], reverse=True)
+                        out.extend(user_posts[:2])
                 except Exception as user_err:
                     print(f"[!] 스레드 @{user} 수집 예외: {user_err}")
             context.close()
@@ -162,35 +197,32 @@ def harvest_5_way_radar(keyword: str) -> list[dict]:
 
 def generate_gemini_card_news(topic: str, items: list[dict]) -> str:
     today = datetime.now().strftime('%m월 %d일')
-    context = '\n'.join(f"- [{x['source']}] {x['title']} ({x['link']})" for x in items) or '(수집 결과 없음)'
-    prompt = f"""당신은 @choi.openai 스타일의 실무 중심 테크/AI 인사이트 에디터 '호도리'입니다.
-일반 뉴스나 주가, 뻔한 이야기는 일절 배제하고, 엔지니어와 실무자가 지금 당장 가져다 쓸 수 있는 핵심 기술 변화와 신규 릴리즈만 다룹니다.
+    context = '\n\n'.join(
+        f"[{x['source']} | 반응: {x.get('likes', 0)}]\n내용: {x['title']}\n원문링크: {x['link']}"
+        for x in items
+    ) or '(수집 결과 없음)'
+    prompt = f"""당신은 테크 트렌드 에디터 '호도리'입니다.
+개인적인 주관이나 불필요한 사족 분석을 붙이지 말고, 수집된 3대 테크 크리에이터(@choi.openai, @unclejobs.ai, @h2smusic)의 실제 게시글 중 '가장 반응이 좋고 실무적으로 핫한 핵심 이슈'들을 원문 사실 그대로 일목요연하게 정리하세요.
 
-주제: {topic}
-오늘: {today}
-참고자료:
+오늘 날짜: {today}
+수집된 최신 포스트:
 {context}
 
-아래 형식에 맞춰 간결하고 임팩트 있게 작성하세요.
+아래 형식에 맞춰 각 크리에이터별로 핵심 이슈 내용과 원문 링크를 정갈하게 정리하세요:
 
-🔥 [{topic} • {today} 실무 테크 브리핑]
+🔥 [오늘의 핫 테크 크리에이터 이슈 브리핑 • {today}]
 
-📌 [1. 무엇이 나왔는가? (한 줄 정의)]
-어떤 도구/모델/기능이 공개되었는지 군더더기 없이 명확하게 설명.
-
-⚙️ [2. 실무에서 어떻게 쓰는가? (작동 방식 & 핵심 변화)]
-• 어떻게 작동하는지(설치, 연동, 프롬프트 방식 등)
-• 기존 방식 대비 무엇이 달라졌는지 실질적인 비교
-• 엔지니어/실무자가 주의해야 할 점이나 제약사항
-
-🔗 [3. 공식 링크 및 깃허브]
-자료 중 가장 신뢰도 높은 원문이나 GitHub 저장소 링크 1~2개 제시.
+(각 크리에이터별로 다음 구조로 작성)
+📌 **[@크리에이터 계정명] 다룬 핵심 이슈**
+• **전달 내용:** (원문에서 다룬 도구/소식/주장의 핵심을 2~3줄로 왜곡 없이 명확히 요약)
+• **실무 핵심:** (설치법, 모델 스펙, 주의점, 프롬프트 팁 등 실무 포인트)
+• **원문 바로가기:** (제공된 원문 URL)
 """
     if not GEMINI_API_KEY:
         return _offline(topic, items)
     payload = {
         'contents': [{'parts': [{'text': prompt}]}],
-        'generationConfig': {'temperature': 0.25, 'maxOutputTokens': 4096},
+        'generationConfig': {'temperature': 0.2, 'maxOutputTokens': 4096},
     }
     for model in ('gemini-3.7-flash', 'gemini-3-flash-preview', 'gemini-2.5-flash'):
         try:
