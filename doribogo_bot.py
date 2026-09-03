@@ -14,7 +14,7 @@ except ImportError:
     pass
 
 DISCORD_WEBHOOK_URL=os.environ.get('DISCORD_WEBHOOK_URL','').strip()
-GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '').strip() or os.environ.get('GEMINI_', '').strip() or 'AIzaSyAXiI8a1MVwfegW5cz7MxfLbGKdv8amz-4'
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '').strip() or os.environ.get('GEMINI_', '').strip()
 
 # KST 정기 AI 브리핑 슬롯: 아침 09:00 / 저녁 18:00
 BRIEFING_SLOT_HOURS = (9, 18)

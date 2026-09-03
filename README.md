@@ -1,6 +1,60 @@
 # 🐯 hodori-bot
 
-호도리 디스코드 대화형 비서 & 실시간 팩트 큐레이션 봇 저장소입니다.
+디스코드 대화형 비서 & 실시간 큐레이션 봇. 24시간 상시 가동되며 매일 아침 09:00 / 저녁 18:00(KST) 정기 브리핑을 자동 발송합니다.
+
+## ✨ 주요 기능
+
+### 1. 🛒 실시간 오픈마켓 최저가 검색 (다나와 브릿지 기반)
+다나와 가격비교 AJAX를 활용해 쿠팡, G마켓, 11번가, 옥션, 롯데ON 등 판매처별 실시간 가격과 **카드/쿠폰 추가할인가**까지 파싱합니다.
+결과는 **실질 최저가 1위 판매처의 최종 할인가 + 직통 구매링크**만 깔끔하게 출력합니다.
+
+```
+도리야 에어팟 얼마해?
+도리야 닌텐도 스위치 살까 하는데
+!핫딜 아이폰 16
+```
+
+### 2. 🔥 스레드 3인방 실시간 핫이슈 브리핑 (GeekNews 스타일)
+`@choi.openai`, `@unclejobs.ai`, `@h2smusic` 3인의 스레드에서 가장 반응(좋아요)이 좋은 베스트 글을 선정하고,
+글쓴이가 타래(1/8 ~ n/8)로 덧붙인 전체 내용을 끝까지 수집해 GeekNews식 심층 요약으로 정리합니다.
+
+### 3. 💬 자연어 대화 & 명령어
+- `도리야 [질문]`, `호도리야 [질문]`, `@hodori bot [질문]` — 자연어 호출
+- `!도리 [키워드]` — 5대 레이더 실시간 리서치
+- `!ai [질문]` — Gemini 자유 대화 / 코딩 비서
+- `!핫딜 [상품명]` — 실시간 최저가 검색
+
+## 🛠️ 로컬 실행
+
+```bash
+pip install -r requirements.txt
+python -m playwright install --with-deps chromium
+
+# .env 파일 생성 (절대 커밋 금지 — .gitignore 처리됨)
+cat > .env << 'EOF'
+DISCORD_BOT_TOKEN=your_discord_bot_token
+DISCORD_CHANNEL_ID=your_channel_id
+GEMINI_API_KEY=your_gemini_api_key
+EOF
+
+python discord_interactive_bot.py
+```
+
+> ⚠️ API 키를 코드에 하드코딩하지 마세요. 전부 환경변수(`.env` / Render Environment)에서 읽습니다.
+
+## ✅ 테스트
+
+```bash
+python -m pytest tests/ -q
+```
+
+브리핑 슬롯 판정, 폴백 카드 포맷, 검색어 정제, 크리에이터 설정을 검증합니다 (외부 네트워크 불필요).
+
+## ☁️ 클라우드 배포 (Render)
+
+`render.yaml`이 포함되어 있어 Render.com에서 원클릭 배포가 가능합니다.
+`requirements.txt` + Chromium 자동 설치가 빌드 단계에 포함되어 있습니다.
+배포 후 Environment에 `DISCORD_BOT_TOKEN`, `DISCORD_CHANNEL_ID`, `GEMINI_API_KEY` 3개를 등록하세요.
 
 ---
 
