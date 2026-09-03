@@ -14,7 +14,7 @@ except ImportError:
     pass
 
 DISCORD_WEBHOOK_URL=os.environ.get('DISCORD_WEBHOOK_URL','').strip()
-GEMINI_API_KEY=os.environ.get('GEMINI_API_KEY','').strip() or os.environ.get('GEMINI_','').strip()
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '').strip() or os.environ.get('GEMINI_', '').strip() or 'AIzaSyAXiI8a1MVwfegW5cz7MxfLbGKdv8amz-4'
 
 # KST 정기 AI 브리핑 슬롯: 아침 09:00 / 저녁 18:00
 BRIEFING_SLOT_HOURS = (9, 18)
@@ -26,66 +26,156 @@ def is_briefing_slot(now: datetime) -> bool:
     """정기 브리핑 시각인지 판단. now 는 KST tz-aware datetime 을 넘긴다."""
     return now.hour in BRIEFING_SLOT_HOURS and now.minute <= BRIEFING_SLOT_GRACE_MINUTES
 
-ISSUE_RADARS={
- 'TECH_SNS':('📱 공식 SNS & 릴리즈 속보','(공식 OR 출시 OR X OR 트위터 OR 스레드 OR release OR changelog)',10),
- 'FINE_PRINT':('🔍 숨은 각주 & 쿼터/비용 정책','(사용량 OR 한도 OR quota OR 가격 OR 버그 OR 누수 OR 삭감)',9),
- 'OPENSOURCE':('🛠️ 오픈소스/가중치/보안','(weights OR MoE OR LoRA OR 보안 OR 탈옥 OR 오픈소스)',8),
- 'AGENT':('⚡ 에이전트 표준 & 인프라','(MCP OR WebMCP OR 에이전트 OR API OR 자동화)',8),
- 'DEALS':('💰 실시간 특가 & 역대가','(역대가 OR 최저가 OR 핫딜 OR 대란 OR 특가 OR 세일 OR 쿠폰)',7),
+ISSUE_RADARS = {
+    'TECH_RELEASE': (
+        '🚀 글로벌 릴리즈 & 신기능 속보',
+        '(OpenAI OR Anthropic OR Claude OR Gemini OR DeepSeek OR Vercel) (출시 OR 공개 OR 릴리즈 OR "release notes" OR update OR API) when:3d',
+    ),
+    'PRACTICAL_TOOLS': (
+        '🛠️ 실무 개발 도구 & 프롬프트/MCP',
+        '(MCP OR "Claude Code" OR Codex OR "Playwright" OR LangChain OR LlamaIndex OR Agent) (공개 OR 가이드 OR "github" OR 도구) when:3d',
+    ),
+    'BENCH_SECURITY': (
+        '⚡ 벤치마크 & 탈옥/보안/정책',
+        '(benchmark OR jailbreak OR safety OR token OR quota OR 비용 OR 누수 OR 가격) (Claude OR GPT OR Gemini OR DeepSeek) when:3d',
+    ),
+    'OPEN_WEIGHTS': (
+        '🤖 오픈소스 가중치 & 로컬 LLM',
+        '(Ollama OR "Hugging Face" OR Qwen OR Llama OR vLLM OR Mistral) (가중치 OR weights OR 오픈소스 OR 로컬) when:3d',
+    ),
 }
 
-def _rss(query:str)->list[dict]:
-    url=f"https://news.google.com/rss/search?q={urllib.parse.quote(query)}&hl=ko&gl=KR&ceid=KR:ko"
-    req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0'})
-    out=[]
+
+def _fetch_hn_show_tools() -> list[dict]:
+    """Hacker News의 Show HN에서 최신 AI/에이전트 실무 도구를 수집한다."""
     try:
-        with urllib.request.urlopen(req,timeout=8) as r:
-            root=ET.fromstring(r.read())
+        url = "https://news.ycombinator.com/show"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        html = urllib.request.urlopen(req, timeout=6).read().decode('utf-8', errors='ignore')
+        soup = BeautifulSoup(html, 'html.parser')
+        tools: list[dict] = []
+        for row in soup.select('.athing')[:20]:
+            a = row.select_one('.titleline > a')
+            if not a:
+                continue
+            title = a.get_text(strip=True)
+            link = a.get('href', '')
+            if any(k in title.lower() for k in ['ai', 'llm', 'agent', 'mcp', 'claude', 'gpt', 'model', 'eval']):
+                tools.append({'title': title.replace('Show HN: ', '[Show HN] '), 'link': link, 'source': 'HackerNews'})
+        return tools[:5]
+    except Exception:
+        return []
+
+
+def _rss(query: str) -> list[dict]:
+    url = f"https://news.google.com/rss/search?q={urllib.parse.quote(query)}&hl=ko&gl=KR&ceid=KR:ko"
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+    out = []
+    try:
+        with urllib.request.urlopen(req, timeout=8) as r:
+            root = ET.fromstring(r.read())
         for item in root.findall('.//item')[:8]:
-            raw=item.findtext('title',''); link=item.findtext('link',''); source=item.findtext('source','') or '출처'
-            title=html.unescape(raw.rsplit(' - ',1)[0].strip() if ' - ' in raw else raw)
-            if link: out.append({'title':title,'link':link,'source':source})
-    except Exception: pass
+            raw = item.findtext('title', '')
+            link = item.findtext('link', '')
+            source = item.findtext('source', '') or '출처'
+            title = html.unescape(raw.rsplit(' - ', 1)[0].strip() if ' - ' in raw else raw)
+            # 잡다한 일반 주가/학회/정치 기사 필터링
+            if any(bad in title for bad in ['주가', '상승세', '테마주', '수혜주', '협약', '캠프', '장학금']):
+                continue
+            if link:
+                out.append({'title': title, 'link': link, 'source': source})
+    except Exception:
+        pass
     return out
 
-def harvest_5_way_radar(keyword:str)->list[dict]:
-    clean=re.sub(r'^(지금|오늘|최신|실시간)\s*','',keyword).strip() or keyword
-    jobs=[]
+
+def harvest_5_way_radar(keyword: str) -> list[dict]:
+    clean = re.sub(r'^(지금|오늘|최신|실시간)\s*', '', keyword).strip() or keyword
+    jobs = []
     with ThreadPoolExecutor(max_workers=5) as ex:
-        for label,suffix,weight in ISSUE_RADARS.values():
-            jobs.append(ex.submit(_rss,f'{clean} {suffix} when:7d'))
-        rows=[]
-        for i,f in enumerate(as_completed(jobs)):
-            try: rows.extend(f.result())
-            except Exception: pass
-    seen=set(); filtered=[]
+        for label, query in ISSUE_RADARS.values():
+            # 특정 키워드가 주어지면 해당 키워드를 중심으로, 일반 브리핑이면 정의된 기술 레이더 쿼리를 직접 수행
+            if any(k in clean for k in ['브리핑', '이슈', '소식', '릴리즈', '도구']):
+                search_term = query
+            else:
+                search_term = f"{clean} (출시 OR 공개 OR API OR 깃허브 OR 업데이트) when:7d"
+            jobs.append(ex.submit(_rss, search_term))
+        jobs.append(ex.submit(_fetch_hn_show_tools))
+
+        rows = []
+        for f in as_completed(jobs):
+            try:
+                rows.extend(f.result())
+            except Exception:
+                pass
+    seen = set()
+    filtered = []
     for row in rows:
-        if row['link'] in seen: continue
-        seen.add(row['link']); filtered.append(row)
+        if row['link'] in seen:
+            continue
+        seen.add(row['link'])
+        filtered.append(row)
     return filtered[:12]
 
-def generate_gemini_card_news(topic:str,items:list[dict])->str:
-    today=datetime.now().strftime('%m월 %d일')
-    context='\n'.join(f"- [{x['source']}] {x['title']} ({x['link']})" for x in items) or '(수집 결과 없음)'
-    prompt=f"""당신은 '도리'다. 질문을 최신 팩트 중심으로 분석한다. 사실과 추정을 구분하고 근거 없는 수치는 만들지 않는다.\n질문: {topic}\n오늘: {today}\n자료:\n{context}\n\n출력:\n🔥 [{topic} • {today}]\n\n📌 [메인 본문]\n핵심 팩트와 반전 포인트를 3~5문장.\n\n💬 [댓글 1 | 기술/메커니즘]\n왜 이런 변화가 생겼는지 설명.\n\n💬 [댓글 2 | 실사용 영향]\n수치나 비용은 검증된 자료만 환산.\n\n💬 [댓글 3 | 공식 출처]\n대표 원문 URL 1개."""
-    if not GEMINI_API_KEY: return _offline(topic,items)
-    payload={'contents':[{'parts':[{'text':prompt}]}],'generationConfig':{'temperature':0.3,'maxOutputTokens':4096}}
-    for model in ('gemini-2.5-flash','gemini-flash-latest'):
+
+def generate_gemini_card_news(topic: str, items: list[dict]) -> str:
+    today = datetime.now().strftime('%m월 %d일')
+    context = '\n'.join(f"- [{x['source']}] {x['title']} ({x['link']})" for x in items) or '(수집 결과 없음)'
+    prompt = f"""당신은 @choi.openai 스타일의 실무 중심 테크/AI 인사이트 에디터 '호도리'입니다.
+일반 뉴스나 주가, 뻔한 이야기는 일절 배제하고, 엔지니어와 실무자가 지금 당장 가져다 쓸 수 있는 핵심 기술 변화와 신규 릴리즈만 다룹니다.
+
+주제: {topic}
+오늘: {today}
+참고자료:
+{context}
+
+아래 형식에 맞춰 간결하고 임팩트 있게 작성하세요.
+
+🔥 [{topic} • {today} 실무 테크 브리핑]
+
+📌 [1. 무엇이 나왔는가? (한 줄 정의)]
+어떤 도구/모델/기능이 공개되었는지 군더더기 없이 명확하게 설명.
+
+⚙️ [2. 실무에서 어떻게 쓰는가? (작동 방식 & 핵심 변화)]
+• 어떻게 작동하는지(설치, 연동, 프롬프트 방식 등)
+• 기존 방식 대비 무엇이 달라졌는지 실질적인 비교
+• 엔지니어/실무자가 주의해야 할 점이나 제약사항
+
+🔗 [3. 공식 링크 및 깃허브]
+자료 중 가장 신뢰도 높은 원문이나 GitHub 저장소 링크 1~2개 제시.
+"""
+    if not GEMINI_API_KEY:
+        return _offline(topic, items)
+    payload = {
+        'contents': [{'parts': [{'text': prompt}]}],
+        'generationConfig': {'temperature': 0.25, 'maxOutputTokens': 4096},
+    }
+    for model in ('gemini-3.7-flash', 'gemini-3-flash-preview', 'gemini-2.5-flash'):
         try:
-            url=f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}'
-            req=urllib.request.Request(url,data=json.dumps(payload).encode(),headers={'Content-Type':'application/json'})
-            with urllib.request.urlopen(req,timeout=20) as r: data=json.loads(r.read().decode())
+            url = f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}'
+            req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers={'Content-Type': 'application/json'})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                data = json.loads(r.read().decode())
             return html.unescape(data['candidates'][0]['content']['parts'][0]['text']).strip()
-        except Exception: continue
-    return _offline(topic,items)
+        except Exception as exc:
+            print(f"[!] Gemini generation error ({model}): {exc}")
+            continue
+    return _offline(topic, items)
 
-def _offline(topic,items):
-    top=items[0] if items else {'title':'관련 최신 데이터 없음','link':''}
-    return f"🔥 [{topic} 실시간 브리핑]\n\n📌 [메인 본문]\n현재 수집 가능한 최신 자료 기준으로 다음 신호가 확인됩니다.\n\n💬 [댓글 1 | 기술/메커니즘]\n{top['title']}\n\n💬 [댓글 2 | 실사용 영향]\n원문과 추가 독립 출처를 함께 확인해야 합니다.\n\n💬 [댓글 3 | 공식 출처]\n🔗 {top['link']}"
 
-def run_full_doribogo(topic:str)->str:
-    items=harvest_5_way_radar(topic)
-    return generate_gemini_card_news(topic,items)
+def _offline(topic: str, items: list[dict]) -> str:
+    top = items[0] if items else {'title': '관련 최신 기술 데이터 없음', 'link': ''}
+    return (
+        f"🔥 [{topic} 실무 테크 브리핑]\n\n"
+        f"📌 [1. 무엇이 나왔는가?]\n{top['title']}\n\n"
+        f"⚙️ [2. 핵심 변화 & 실무 포인트]\n• 원문 공식 릴리즈 노트를 참고하여 실무 검증이 필요합니다.\n\n"
+        f"🔗 [3. 공식 링크]\n🔗 {top['link']}"
+    )
+
+
+def run_full_doribogo(topic: str) -> str:
+    items = harvest_5_way_radar(topic)
+    return generate_gemini_card_news(topic, items)
 
 def send_discord(title,text):
     if not DISCORD_WEBHOOK_URL: return False

@@ -51,8 +51,11 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 
-# 매일 KST 09:00 / 18:00 정기 AI 브리핑 키워드
-BRIEFING_KEYWORDS = ["AI 모델 최신 이슈", "OpenAI Claude 최신 소식"]
+# 매일 KST 09:00 / 18:00 정기 AI 브리핑 키워드 (@choi.openai 스타일 실무 테크 & 에이전트/도구 릴리즈)
+BRIEFING_KEYWORDS = [
+    "Claude OpenAI 최신 릴리즈 & 실무 에이전트",
+    "오픈소스 AI 개발 도구 & 프롬프트 MCP",
+]
 _fired_briefing: set[str] = set()  # "YYYY-MM-DD|HH" 중복 발송 방지
 
 
