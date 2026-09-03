@@ -50,7 +50,6 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
-WATCH_KEYWORDS = ["백컨트리 360", "캠핑 텐트 특가"]
 
 # 매일 KST 09:00 / 18:00 정기 AI 브리핑 키워드
 BRIEFING_KEYWORDS = ["AI 모델 최신 이슈", "OpenAI Claude 최신 소식"]
@@ -72,8 +71,6 @@ async def on_ready():
     print("• 자연어 호출: '도리야 [질문]', '호도리야 [질문]', @봇 멘션")
     print("• 명령어 접두사: !도리, !ai, !도움말")
     print("=" * 60)
-    if not auto_radar_loop.is_running():
-        auto_radar_loop.start()
     if not scheduled_briefing_loop.is_running():
         scheduled_briefing_loop.start()
 
@@ -231,42 +228,13 @@ async def help_cmd(ctx):
             "• `!도리 [키워드]` : 5대 레이더 실시간 리서치 + 4단계 팩트 리포트\n"
             "• `!ai [질문]` : Gemini AI 자유 대화, 코딩, 번역 비서\n\n"
             "**⏰ 정기 브리핑**\n"
-            "• 매일 아침 09:00 / 저녁 18:00 (KST) AI 모델 최신 이슈 자동 발송\n"
-            "• 30분마다 주요 감시 핫딜/뉴스 자동 발송 (컴퓨터를 꺼도 계속)"
+            "• 매일 아침 09:00 / 저녁 18:00 (KST) AI 모델 최신 이슈 자동 발송"
         ),
         color=0x10B981
     )
     embed.set_footer(text="hodori bot • 만능 개인 비서")
     await ctx.send(embed=embed)
 
-
-@tasks.loop(minutes=30)
-async def auto_radar_loop():
-    """30분 주기 정기 자동 브리핑."""
-    if not DISCORD_CHANNEL_ID:
-        return
-
-    try:
-        channel = bot.get_channel(int(DISCORD_CHANNEL_ID))
-        if not channel:
-            return
-
-        today_str = datetime.now().strftime("%m월 %d일")
-        loop = asyncio.get_event_loop()
-
-        for kw in WATCH_KEYWORDS:
-            card = await loop.run_in_executor(None, doribogo_bot.run_full_doribogo, kw)
-            embed = discord.Embed(
-                title=f"⚡ [{today_str} 실시간 이슈] {kw}",
-                description=card,
-                color=0xFF6B00
-            )
-            embed.set_footer(text=f"hodori bot • {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-            await channel.send(embed=embed)
-            await asyncio.sleep(2)
-
-    except Exception as e:
-        print(f"[!] 30분 정기 브리핑 에러: {e}")
 
 
 @tasks.loop(minutes=1)
@@ -318,10 +286,6 @@ async def scheduled_briefing_loop():
 async def _briefing_before_loop():
     await bot.wait_until_ready()
 
-
-@auto_radar_loop.before_loop
-async def before_loop():
-    await bot.wait_until_ready()
 
 
 def main():

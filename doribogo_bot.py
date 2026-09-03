@@ -14,8 +14,6 @@ except ImportError:
     pass
 
 DISCORD_WEBHOOK_URL=os.environ.get('DISCORD_WEBHOOK_URL','').strip()
-TELEGRAM_BOT_TOKEN=os.environ.get('TELEGRAM_BOT_TOKEN','').strip()
-TELEGRAM_CHAT_ID=os.environ.get('TELEGRAM_CHAT_ID','').strip()
 GEMINI_API_KEY=os.environ.get('GEMINI_API_KEY','').strip() or os.environ.get('GEMINI_','').strip()
 
 # KST 정기 AI 브리핑 슬롯: 아침 09:00 / 저녁 18:00
@@ -91,21 +89,11 @@ def run_full_doribogo(topic:str)->str:
 
 def send_discord(title,text):
     if not DISCORD_WEBHOOK_URL: return False
-    payload={'username':'dori bot','embeds':[{'title':title,'description':text[:4000],'color':0xFF6B00}]}
+    payload={'username':'hodori bot','avatar_url':'https://avatars.githubusercontent.com/u/274787659?v=4','embeds':[{'title':title,'description':text[:4000],'color':0xFF6B00}]}
     try:
         req=urllib.request.Request(DISCORD_WEBHOOK_URL,data=json.dumps(payload).encode(),headers={'Content-Type':'application/json'})
         with urllib.request.urlopen(req,timeout=10) as r: return r.status in (200,204)
     except Exception: return False
 
-def send_telegram(text,chat_id=None):
-    target=chat_id or TELEGRAM_CHAT_ID
-    if not TELEGRAM_BOT_TOKEN or not target: return False
-    url=f'https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage'
-    payload={'chat_id':target,'text':text,'disable_web_page_preview':True}
-    try:
-        req=urllib.request.Request(url,data=json.dumps(payload).encode(),headers={'Content-Type':'application/json'})
-        with urllib.request.urlopen(req,timeout=10) as r: return r.status==200
-    except Exception: return False
-
 def send_broadcast(title,text,chat_id=None):
-    return send_discord(title,text) or send_telegram(f'**{title}**\n\n{text}',chat_id)
+    return send_discord(title,text)
