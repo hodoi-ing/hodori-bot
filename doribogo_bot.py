@@ -278,7 +278,70 @@ def generate_gemini_card_news(topic: str, items: list[dict]) -> str:
         except Exception as exc:
             print(f"[!] Gemini generation error ({model}): {exc}")
             continue
-    return _offline(topic, items)
+def search_shopping_deals(query: str, max_items: int = 3) -> list[dict]:
+    """다나와 브릿지 AJAX를 활용해 특정 상품의 마켓별(쿠팡, G마켓, 11번가, 옥션 등) 실시간 최저가를 검색한다."""
+    encoded = urllib.parse.quote_plus(query)
+    search_url = f"https://search.danawa.com/dsearch.php?query={encoded}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    }
+    try:
+        req = urllib.request.Request(search_url, headers=headers)
+        html = urllib.request.urlopen(req, timeout=8).read().decode("utf-8", errors="ignore")
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html, "html.parser")
+        products: list[dict] = []
+        for item in soup.select(".prod_main_info")[:max_items]:
+            name_el = item.select_one(".prod_name a")
+            if not name_el:
+                continue
+            title = name_el.get_text(strip=True)
+            href = name_el.get("href", "")
+            pcode_match = re.search(r"pcode=(\d+)", href)
+            if not pcode_match:
+                continue
+            pcode = pcode_match.group(1)
+
+            ajax_url = "https://prod.danawa.com/info/ajax/getAllPriceCompareMallList.ajax.php"
+            data = urllib.parse.urlencode({"pcode": pcode}).encode("utf-8")
+            ajax_headers = {
+                "User-Agent": headers["User-Agent"],
+                "Referer": f"https://prod.danawa.com/info/?pcode={pcode}",
+                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                "X-Requested-With": "XMLHttpRequest",
+            }
+            r = urllib.request.Request(ajax_url, data=data, headers=ajax_headers)
+            try:
+                resp = urllib.request.urlopen(r, timeout=6).read().decode("utf-8", errors="ignore")
+                s_ajax = BeautifulSoup(resp, "html.parser")
+                malls = []
+                seen = set()
+                for diff in s_ajax.select(".diff_item"):
+                    mall_img = diff.select_one(".d_mall img")
+                    raw_mall = mall_img.get("alt", "").strip() if mall_img else (diff.select_one(".d_mall").get_text(strip=True) if diff.select_one(".d_mall") else "")
+                    mall_name = raw_mall.split("\n")[0].replace("네이버페이", "").replace("신고", "").strip()
+                    if not mall_name or mall_name in seen:
+                        continue
+                    prc_el = diff.select_one(".prc_c, .price")
+                    if not prc_el:
+                        continue
+                    digits = re.sub(r"[^\d]", "", prc_el.get_text())
+                    if not digits:
+                        continue
+                    price = int(digits)
+                    link_el = diff.select_one("a.link, .btn_buy a")
+                    link = link_el["href"] if link_el and "href" in link_el.attrs else href
+                    seen.add(mall_name)
+                    malls.append({"mall": mall_name, "price": price, "link": link})
+                malls.sort(key=lambda x: x["price"])
+                if malls:
+                    products.append({"title": title, "pcode": pcode, "url": href, "malls": malls})
+            except Exception:
+                pass
+        return products
+    except Exception as exc:
+        print(f"[!] 쇼핑 검색 실패: {exc}")
+        return []
 
 
 def _offline(topic: str, items: list[dict]) -> str:

@@ -112,12 +112,16 @@ async def on_message(message):
             )
             return
 
-        # 지능형 라우팅: 리서치/핫딜/뉴스 질문인지, 일반 대화/코딩인지 판단
+        # 지능형 라우팅: 쇼핑 최저가 검색 vs 테크 이슈 리서치 vs 일반 대화
+        is_shopping_intent = any(w in cleaned_query for w in ["최저가", "가격비교", "얼마", "사려는데", "최저", "핫딜", "구매가"])
         is_research_intent = any(w in cleaned_query for w in [
-            "특가", "가격", "텐트", "할인", "대란", "구매", "장비", "이슈", "뉴스", "속보", "최신", "시세", "알아봐", "찾아봐", "정리해줘", "소식"
+            "특가", "가격", "이슈", "뉴스", "속보", "최신", "시세", "알아봐", "찾아봐", "정리해줘", "소식", "스레드"
         ])
 
-        if is_research_intent:
+        if is_shopping_intent:
+            search_term = re.sub(r"(최저가|가격비교|얼마야|얼마|알아봐줘|찾아줘|사려는데)\s*", "", cleaned_query).strip() or cleaned_query
+            await handle_shopping_search(message.channel, search_term)
+        elif is_research_intent:
             await handle_doribogo_research(message.channel, cleaned_query)
         else:
             await handle_ai_chat(message.channel, cleaned_query)
@@ -145,6 +149,43 @@ async def handle_doribogo_research(channel, keyword):
         await channel.send(embed=embed)
     except Exception as e:
         await loading_msg.edit(content=f"❌ **[{keyword}]** 분석 중 오류 발생: {e}")
+
+async def handle_shopping_search(channel, query):
+    """다나와 브릿지 기반 마켓별(쿠팡, G마켓, 11번가, 옥션 등) 실시간 최저가 검색 처리."""
+    loading_msg = await channel.send(f"🛒 **[{query}]** 오픈마켓 실시간 최저가 검색 중... ⏳")
+    try:
+        loop = asyncio.get_event_loop()
+        products = await loop.run_in_executor(None, doribogo_bot.search_shopping_deals, query, 3)
+        await loading_msg.delete()
+
+        if not products:
+            await channel.send(f"❌ **[{query}]**에 대한 판매처별 가격 정보를 찾지 못했습니다.")
+            return
+
+        embeds = []
+        for p in products:
+            mall_lines = []
+            for m in p["malls"][:5]:
+                mall_lines.append(f"• **{m['mall']}**: `{m['price']:,}원` ➔ [구매링크]({m['link']})")
+
+            lowest_mall = p["malls"][0]["mall"] if p["malls"] else "미상"
+            lowest_price = f"{p['malls'][0]['price']:,}원" if p["malls"] else "가격정보 없음"
+
+            e = discord.Embed(
+                title=f"📦 {p['title'][:60]}",
+                url=p.get("url", f"https://prod.danawa.com/info/?pcode={p.get('pcode')}"),
+                color=0x10B981,
+            )
+            e.description = (
+                f"🔥 **현재 최저가: {lowest_price} ({lowest_mall})**\n\n"
+                "**판매처별 실시간 가격 비교:**\n" + "\n".join(mall_lines)
+            )
+            e.set_footer(text="hodori bot • 오픈마켓 실시간 가격비교")
+            embeds.append(e)
+
+        await channel.send(f"🛒 **[{query}]** 실시간 최저가 검색 결과입니다.", embeds=embeds)
+    except Exception as e:
+        await loading_msg.edit(content=f"❌ **[{query}]** 최저가 검색 중 오류 발생: {e}")
 
 
 async def handle_ai_chat(channel, query):
@@ -202,6 +243,13 @@ def call_gemini_general(prompt: str) -> str:
 
 
 # --- 기존 명령어 호환 (!도리, !ai, !도움말) ---
+@bot.command(name="핫딜", aliases=["가격", "최저가", "쇼핑", "deal"])
+async def deal_cmd(ctx, *, keyword: str = ""):
+    if not keyword:
+        await ctx.send("🐯 검색할 상품명을 입력해주세요! (예: `!핫딜 아이폰 16` 또는 `도리야 아이폰 16 최저가 찾아줘`)")
+        return
+    await handle_shopping_search(ctx.channel, keyword)
+
 @bot.command(name="도리", aliases=["dori", "doribogo"])
 async def dori_cmd(ctx, *, keyword: str = ""):
     if not keyword:
