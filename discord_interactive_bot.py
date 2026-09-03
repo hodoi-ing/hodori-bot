@@ -266,20 +266,18 @@ async def scheduled_briefing_loop():
         today_str = now_kst.strftime("%m월 %d일")
         loop = asyncio.get_event_loop()
 
-        for kw in BRIEFING_KEYWORDS:
-            card = await loop.run_in_executor(None, doribogo_bot.run_full_doribogo, kw)
-            if channel is not None:
-                embed = discord.Embed(
-                    title=f"🔥 [{today_str} 정기 AI 브리핑] {kw}",
-                    description=card,
-                    color=0xFF6B00,
-                )
-                embed.set_footer(text=f"hodori bot • KST 정기 브리핑 {now_kst.strftime('%H:%M')}")
-                await channel.send(embed=embed)
-            else:
-                ok = doribogo_bot.send_discord(f"🔥 [{today_str} 정기 AI 브리핑] {kw}", card)
-                print(f"[*] 웹훅 폴백 발송: {kw} → {ok}")
-            await asyncio.sleep(2)
+        card = await loop.run_in_executor(None, doribogo_bot.run_full_doribogo, "실시간 테크 이슈")
+        if channel is not None:
+            embed = discord.Embed(
+                title=f"⚡ [{today_str} 스레드 3인방 실시간 핫이슈]",
+                description=card,
+                color=0x5865F2,
+            )
+            embed.set_footer(text=f"hodori bot • KST 정기 브리핑 {now_kst.strftime('%H:%M')}")
+            await channel.send(embed=embed)
+        else:
+            ok = doribogo_bot.send_discord(f"⚡ [{today_str} 스레드 3인방 실시간 핫이슈]", card)
+            print(f"[*] 웹훅 폴백 발송: {ok}")
         print("[*] 정기 AI 브리핑 완료")
     except Exception as e:
         print(f"[!] 정기 AI 브리핑 에러: {e}")
