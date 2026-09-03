@@ -173,11 +173,14 @@ async def handle_shopping_search(channel, query):
         embeds = []
         for p in products:
             mall_lines = []
-            for m in p["malls"][:5]:
-                mall_lines.append(f"• **{m['mall']}**: `{m['price']:,}원` ➔ [구매링크]({m['link']})")
+            for m in p["malls"][:6]:
+                benefit_tag = f"  ({m['benefit']})" if m.get("benefit") else ""
+                mall_lines.append(f"• **{m['mall']}**: `{m['price']:,}원`{benefit_tag} ➔ [구매링크]({m['link']})")
 
-            lowest_mall = p["malls"][0]["mall"] if p["malls"] else "미상"
-            lowest_price = f"{p['malls'][0]['price']:,}원" if p["malls"] else "가격정보 없음"
+            best_mall = p["malls"][0]
+            lowest_mall = best_mall["mall"]
+            lowest_price = f"{best_mall['price']:,}원"
+            best_benefit = f" ({best_mall['benefit']})" if best_mall.get("benefit") else ""
 
             e = discord.Embed(
                 title=f"📦 {p['title'][:60]}",
@@ -185,10 +188,10 @@ async def handle_shopping_search(channel, query):
                 color=0x10B981,
             )
             e.description = (
-                f"🔥 **현재 최저가: {lowest_price} ({lowest_mall})**\n\n"
-                "**판매처별 실시간 가격 비교:**\n" + "\n".join(mall_lines)
+                f"🔥 **현재 최저가: {lowest_price}{best_benefit} ({lowest_mall})**\n\n"
+                "**판매처별 실시간 가격 (카드/쿠폰 혜택가 포함):**\n" + "\n".join(mall_lines)
             )
-            e.set_footer(text="hodori bot • 오픈마켓 실시간 가격비교")
+            e.set_footer(text="hodori bot • 오픈마켓 실시간 가격 & 카드/쿠폰가 비교")
             embeds.append(e)
 
         await channel.send(f"🛒 **[{query}]** 실시간 최저가 검색 결과입니다.", embeds=embeds)

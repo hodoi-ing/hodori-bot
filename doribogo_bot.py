@@ -332,7 +332,25 @@ def search_shopping_deals(query: str, max_items: int = 3) -> list[dict]:
                     link_el = diff.select_one("a.link, .btn_buy a")
                     link = link_el["href"] if link_el and "href" in link_el.attrs else href
                     seen.add(mall_name)
-                    malls.append({"mall": mall_name, "price": price, "link": link})
+
+                    # 카드/쿠폰 추가 결제 혜택가 파싱
+                    card_el = diff.select_one(".card_info, .d_card, [class*=card]")
+                    benefit_str = ""
+                    if card_el:
+                        card_text = card_el.get_text(separator=" ", strip=True)
+                        card_match = re.search(r"([\d,]+)\s*원\s*([가-힣A-Za-z0-9]+카드)?", card_text)
+                        if card_match:
+                            c_price = int(card_match.group(1).replace(",", ""))
+                            c_name = card_match.group(2) or "카드/쿠폰할인"
+                            if c_price < price:
+                                benefit_str = f"💥 {c_name}: {c_price:,}원"
+
+                    malls.append({
+                        "mall": mall_name,
+                        "price": price,
+                        "benefit": benefit_str,
+                        "link": link,
+                    })
                 malls.sort(key=lambda x: x["price"])
                 if malls:
                     products.append({"title": title, "pcode": pcode, "url": href, "malls": malls})
