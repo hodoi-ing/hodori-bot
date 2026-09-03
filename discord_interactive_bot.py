@@ -240,15 +240,27 @@ def call_gemini_general(prompt: str) -> str:
         }
     }
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"}
-    )
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        res_data = json.loads(resp.read().decode("utf-8"))
-        return res_data["candidates"][0]["content"]["parts"][0]["text"].strip()
+    import time as _time, random as _rand
+    last_err = None
+    for attempt in range(4):
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"}
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                res_data = json.loads(resp.read().decode("utf-8"))
+                return res_data["candidates"][0]["content"]["parts"][0]["text"].strip()
+        except Exception as exc:
+            last_err = exc
+            print(f"[!] call_gemini_general try{attempt+1}: {exc}")
+            if '429' in str(exc) and attempt < 3:
+                _time.sleep(2 ** attempt + _rand.random())
+                continue
+            break
+    raise last_err
 
 
 # --- 기존 명령어 호환 (!도리, !ai, !도움말) ---
