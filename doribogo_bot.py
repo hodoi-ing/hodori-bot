@@ -45,6 +45,44 @@ ISSUE_RADARS = {
     ),
 }
 
+THREADS_CREATORS = ["choi.openai", "unclejobs.ai", "h2smusic"]
+
+
+def _fetch_threads_creators() -> list[dict]:
+    """핵심 테크 크리에이터 3인(@choi.openai, @unclejobs.ai, @h2smusic)의 최신 스레드를 수집한다."""
+    out: list[dict] = []
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                locale='ko-KR',
+            )
+            page = context.new_page()
+            for user in THREADS_CREATORS:
+                try:
+                    page.goto(f"https://www.threads.net/@{user}", wait_until="domcontentloaded", timeout=12000)
+                    page.wait_for_timeout(2000)
+                    containers = page.locator('div[data-pressable-container="true"]').all()
+                    for c in containers[:3]:
+                        txt = c.inner_text().strip().replace("\n", " ")
+                        if len(txt) > 25:
+                            # 고정글 표시 제거 및 앞단 정리
+                            cleaned = re.sub(r'^(고정됨\s*)?', '', txt)
+                            out.append({
+                                'title': cleaned[:160],
+                                'link': f"https://www.threads.net/@{user}",
+                                'source': f"Threads @{user}",
+                            })
+                except Exception as user_err:
+                    print(f"[!] 스레드 @{user} 수집 예외: {user_err}")
+            context.close()
+            browser.close()
+    except Exception as exc:
+        print(f"[!] 스레드 크리에이터 수집 실패: {exc}")
+    return out
+
 
 def _fetch_hn_show_tools() -> list[dict]:
     """Hacker News의 Show HN에서 최신 AI/에이전트 실무 도구를 수집한다."""
@@ -52,6 +90,7 @@ def _fetch_hn_show_tools() -> list[dict]:
         url = "https://news.ycombinator.com/show"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
         html = urllib.request.urlopen(req, timeout=6).read().decode('utf-8', errors='ignore')
+        from bs4 import BeautifulSoup
         soup = BeautifulSoup(html, 'html.parser')
         tools: list[dict] = []
         for row in soup.select('.athing')[:20]:
@@ -65,7 +104,6 @@ def _fetch_hn_show_tools() -> list[dict]:
         return tools[:5]
     except Exception:
         return []
-
 
 def _rss(query: str) -> list[dict]:
     url = f"https://news.google.com/rss/search?q={urllib.parse.quote(query)}&hl=ko&gl=KR&ceid=KR:ko"
@@ -92,16 +130,15 @@ def _rss(query: str) -> list[dict]:
 def harvest_5_way_radar(keyword: str) -> list[dict]:
     clean = re.sub(r'^(지금|오늘|최신|실시간)\s*', '', keyword).strip() or keyword
     jobs = []
-    with ThreadPoolExecutor(max_workers=5) as ex:
+    with ThreadPoolExecutor(max_workers=6) as ex:
         for label, query in ISSUE_RADARS.values():
-            # 특정 키워드가 주어지면 해당 키워드를 중심으로, 일반 브리핑이면 정의된 기술 레이더 쿼리를 직접 수행
             if any(k in clean for k in ['브리핑', '이슈', '소식', '릴리즈', '도구']):
                 search_term = query
             else:
                 search_term = f"{clean} (출시 OR 공개 OR API OR 깃허브 OR 업데이트) when:7d"
             jobs.append(ex.submit(_rss, search_term))
         jobs.append(ex.submit(_fetch_hn_show_tools))
-
+        jobs.append(ex.submit(_fetch_threads_creators))
         rows = []
         for f in as_completed(jobs):
             try:
@@ -109,13 +146,18 @@ def harvest_5_way_radar(keyword: str) -> list[dict]:
             except Exception:
                 pass
     seen = set()
+    # 핵심 3인방(@choi.openai, @unclejobs.ai, @h2smusic) 글과 실무 도구를 상위로 우선 배치
+    threads_items = [r for r in rows if 'Threads' in r.get('source', '')]
+    other_items = [r for r in rows if 'Threads' not in r.get('source', '')]
+    combined = threads_items + other_items
+
     filtered = []
-    for row in rows:
+    for row in combined:
         if row['link'] in seen:
             continue
         seen.add(row['link'])
         filtered.append(row)
-    return filtered[:12]
+    return filtered[:15]
 
 
 def generate_gemini_card_news(topic: str, items: list[dict]) -> str:
