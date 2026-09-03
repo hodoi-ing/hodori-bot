@@ -335,7 +335,8 @@ def search_shopping_deals(query: str, max_items: int = 3) -> list[dict]:
 
                     # 카드/쿠폰 추가 결제 혜택가 파싱
                     card_el = diff.select_one(".card_info, .d_card, [class*=card]")
-                    benefit_str = ""
+                    effective_price = price
+                    benefit_name = ""
                     if card_el:
                         card_text = card_el.get_text(separator=" ", strip=True)
                         card_match = re.search(r"([\d,]+)\s*원\s*([가-힣A-Za-z0-9]+카드)?", card_text)
@@ -343,15 +344,18 @@ def search_shopping_deals(query: str, max_items: int = 3) -> list[dict]:
                             c_price = int(card_match.group(1).replace(",", ""))
                             c_name = card_match.group(2) or "카드/쿠폰할인"
                             if c_price < price:
-                                benefit_str = f"💥 {c_name}: {c_price:,}원"
+                                effective_price = c_price
+                                benefit_name = c_name
 
                     malls.append({
                         "mall": mall_name,
-                        "price": price,
-                        "benefit": benefit_str,
+                        "base_price": price,
+                        "effective_price": effective_price,
+                        "benefit_name": benefit_name,
                         "link": link,
                     })
-                malls.sort(key=lambda x: x["price"])
+                # 실질 최저가(카드/쿠폰 할인가 우선) 기준으로 정렬
+                malls.sort(key=lambda x: x["effective_price"])
                 if malls:
                     products.append({"title": title, "pcode": pcode, "url": href, "malls": malls})
             except Exception:

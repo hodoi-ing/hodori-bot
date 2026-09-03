@@ -172,26 +172,24 @@ async def handle_shopping_search(channel, query):
 
         embeds = []
         for p in products:
-            mall_lines = []
-            for m in p["malls"][:6]:
-                benefit_tag = f"  ({m['benefit']})" if m.get("benefit") else ""
-                mall_lines.append(f"• **{m['mall']}**: `{m['price']:,}원`{benefit_tag} ➔ [구매링크]({m['link']})")
-
-            best_mall = p["malls"][0]
-            lowest_mall = best_mall["mall"]
-            lowest_price = f"{best_mall['price']:,}원"
-            best_benefit = f" ({best_mall['benefit']})" if best_mall.get("benefit") else ""
+            # 실질 최저가(카드/쿠폰 포함 1위) 판매처 단 1개만 선정
+            best = p["malls"][0]
+            effective_price_str = f"{best['effective_price']:,}원"
+            base_price_str = f"{best['base_price']:,}원"
+            discount_tag = f" (💥 {best['benefit_name']})" if best.get("benefit_name") else ""
 
             e = discord.Embed(
                 title=f"📦 {p['title'][:60]}",
-                url=p.get("url", f"https://prod.danawa.com/info/?pcode={p.get('pcode')}"),
+                url=best["link"],
                 color=0x10B981,
             )
             e.description = (
-                f"🔥 **현재 최저가: {lowest_price}{best_benefit} ({lowest_mall})**\n\n"
-                "**판매처별 실시간 가격 (카드/쿠폰 혜택가 포함):**\n" + "\n".join(mall_lines)
+                f"🔥 **무조건 최종 최저가: `{effective_price_str}`**{discount_tag}\n\n"
+                f"• **최저가 판매처:** {best['mall']}\n"
+                f"• **기본 판매가:** {base_price_str}\n\n"
+                f"👉 **[최저가 할인 구매링크 바로가기]({best['link']})**"
             )
-            e.set_footer(text="hodori bot • 오픈마켓 실시간 가격 & 카드/쿠폰가 비교")
+            e.set_footer(text="hodori bot • 카드/쿠폰 적용 최종 실질 최저가")
             embeds.append(e)
 
         await channel.send(f"🛒 **[{query}]** 실시간 최저가 검색 결과입니다.", embeds=embeds)
