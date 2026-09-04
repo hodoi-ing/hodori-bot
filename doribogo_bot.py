@@ -278,7 +278,8 @@ def generate_gemini_card_news(topic: str, items: list[dict]) -> str:
         'generationConfig': {'temperature': 0.2, 'maxOutputTokens': 4096},
     }
     import time as _time, random as _rand
-    for model in ('gemini-3.7-flash', 'gemini-3-flash-preview', 'gemini-2.5-flash'):
+    model = _pick_gemini_model()
+    if model:
         for attempt in range(4):
             try:
                 url = f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}'
@@ -289,10 +290,41 @@ def generate_gemini_card_news(topic: str, items: list[dict]) -> str:
             except Exception as exc:
                 msg = str(exc)
                 print(f"[!] Gemini generation error ({model} try{attempt+1}): {exc}")
-                if '429' in msg and attempt < 3:
+                if ('429' in msg or '503' in msg or '500' in msg) and attempt < 3:
                     _time.sleep(2 ** attempt + _rand.random())
                     continue
                 break
+    print("[!] Gemini 사용 불가 → 오프라인 카드로 폴백")
+    return _offline(topic, items)
+
+
+def _pick_gemini_model() -> str | None:
+    """ListModels에서 generateContent 지원 flash 모델을 런타임에 선택 (하드코딩 만료 방지)."""
+    try:
+        url = f'https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_API_KEY}'
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            data = json.loads(r.read().decode())
+        cands = []
+        for m in data.get('models', []):
+            name = m.get('name', '').split('/')[-1]
+            if 'generateContent' not in m.get('supportedGenerationMethods', []):
+                continue
+            if 'flash' not in name or 'image' in name:
+                continue
+            cands.append(name)
+        # 정식 > preview, full > lite 순으로 선호
+        cands.sort(key=lambda n: ('preview' in n, 'lite' in n))
+        if cands:
+            print(f"[*] Gemini 모델 선택: {cands[0]}")
+            return cands[0]
+        print("[!] 사용 가능한 flash 모델 없음")
+        return None
+    except Exception as exc:
+        print(f"[!] Gemini ListModels 실패: {exc}")
+        return None
+
+
 def search_shopping_deals(query: str, max_items: int = 3) -> list[dict]:
     """다나와 브릿지 AJAX를 활용해 특정 상품의 마켓별(쿠팡, G마켓, 11번가, 옥션 등) 실시간 최저가를 검색한다."""
     encoded = urllib.parse.quote_plus(query)
