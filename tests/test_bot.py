@@ -20,19 +20,25 @@ def _dt(hour: int, minute: int) -> datetime:
 
 def test_briefing_slot_morning():
     assert doribogo_bot.is_briefing_slot(_dt(9, 0)) is True
-    assert doribogo_bot.is_briefing_slot(_dt(9, 4)) is True
+    assert doribogo_bot.is_briefing_slot(_dt(11, 59)) is True
 
 
 def test_briefing_slot_evening():
     assert doribogo_bot.is_briefing_slot(_dt(18, 0)) is True
-    assert doribogo_bot.is_briefing_slot(_dt(18, 4)) is True
+    assert doribogo_bot.is_briefing_slot(_dt(20, 59)) is True
 
 
 def test_briefing_slot_closed():
-    assert doribogo_bot.is_briefing_slot(_dt(9, 5)) is False
-    assert doribogo_bot.is_briefing_slot(_dt(12, 0)) is False
-    assert doribogo_bot.is_briefing_slot(_dt(18, 5)) is False
     assert doribogo_bot.is_briefing_slot(_dt(8, 59)) is False
+    assert doribogo_bot.is_briefing_slot(_dt(12, 0)) is False
+    assert doribogo_bot.is_briefing_slot(_dt(17, 59)) is False
+    assert doribogo_bot.is_briefing_slot(_dt(21, 0)) is False
+
+
+def test_slot_id():
+    assert doribogo_bot._slot_id(_dt(9, 30)) == "AM"
+    assert doribogo_bot._slot_id(_dt(19, 0)) == "PM"
+    assert doribogo_bot._slot_id(_dt(12, 0)) is None
 
 
 def test_offline_card_contains_title_and_link():

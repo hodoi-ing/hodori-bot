@@ -16,15 +16,24 @@ except ImportError:
 DISCORD_WEBHOOK_URL=os.environ.get('DISCORD_WEBHOOK_URL','').strip()
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '').strip() or os.environ.get('GEMINI_', '').strip()
 
-# KST 정기 AI 브리핑 슬롯: 아침 09:00 / 저녁 18:00
+# KST 정기 AI 브리핑 슬롯: 아침 09:00~11:59 / 저녁 18:00~20:59 (free 플랜 슬립/콜드스타트 catch-up 포함)
 BRIEFING_SLOT_HOURS = (9, 18)
-# 슬롯 시작 후 몇 분까지 발송 기회를 허용할지 (프로세스 재시작 지연 대비)
-BRIEFING_SLOT_GRACE_MINUTES = 4
+# 하위 호환용 (실제 윈도우는 is_briefing_slot이 판단)
+BRIEFING_SLOT_GRACE_MINUTES = 180
+
+
+def _slot_id(now: datetime) -> str | None:
+    """아침/저녁 슬롯 식별자. 윈도우 밖이면 None."""
+    if 9 <= now.hour < 12:
+        return "AM"
+    if 18 <= now.hour < 21:
+        return "PM"
+    return None
 
 
 def is_briefing_slot(now: datetime) -> bool:
     """정기 브리핑 시각인지 판단. now 는 KST tz-aware datetime 을 넘긴다."""
-    return now.hour in BRIEFING_SLOT_HOURS and now.minute <= BRIEFING_SLOT_GRACE_MINUTES
+    return _slot_id(now) is not None
 
 ISSUE_RADARS = {
     'TECH_RELEASE': (

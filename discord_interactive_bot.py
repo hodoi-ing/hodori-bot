@@ -51,12 +51,8 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 
-# 매일 KST 09:00 / 18:00 정기 AI 브리핑 키워드 (@choi.openai 스타일 실무 테크 & 에이전트/도구 릴리즈)
-BRIEFING_KEYWORDS = [
-    "Claude OpenAI 최신 릴리즈 & 실무 에이전트",
-    "오픈소스 AI 개발 도구 & 프롬프트 MCP",
-]
-_fired_briefing: set[str] = set()  # "YYYY-MM-DD|HH" 중복 발송 방지
+# 매일 KST 아침(09:00~11:59) / 저녁(18:00~20:59) 스레드 3인방 핫이슈 브리핑 (단일 발송, 슬롯당 1회)
+_fired_briefing: set[str] = set()  # "YYYY-MM-DD|AM" / "YYYY-MM-DD|PM" 중복 발송 방지
 
 
 def _kst_now() -> datetime:
@@ -64,7 +60,8 @@ def _kst_now() -> datetime:
 
 
 def _briefing_key(now: datetime) -> str:
-    return f"{now.strftime('%Y-%m-%d')}|{now.hour}"
+    slot = doribogo_bot._slot_id(now) or now.hour
+    return f"{now.strftime('%Y-%m-%d')}|{slot}"
 
 
 @bot.event
@@ -300,7 +297,7 @@ async def help_cmd(ctx):
             "• `!도리 [키워드]` : 5대 레이더 실시간 리서치 + 4단계 팩트 리포트\n"
             "• `!ai [질문]` : Gemini AI 자유 대화, 코딩, 번역 비서\n\n"
             "**⏰ 정기 브리핑**\n"
-            "• 매일 아침 09:00 / 저녁 18:00 (KST) AI 모델 최신 이슈 자동 발송"
+            "• 매일 아침 09:00~11:59 / 저녁 18:00~20:59 (KST) 스레드 3인방 핫이슈 자동 발송"
         ),
         color=0x10B981
     )
@@ -311,9 +308,9 @@ async def help_cmd(ctx):
 
 @tasks.loop(minutes=1)
 async def scheduled_briefing_loop():
-    """매일 아침 09:00 / 저녁 18:00 (KST) 정기 AI 이슈 브리핑.
+    """매일 아침(09:00~11:59) / 저녁(18:00~20:59, KST) 스레드 3인방 핫이슈 브리핑.
 
-    슬롯 시작 후 4분까지 발송 기회를 주고, 날짜+시각 키로 하루 1회만 발송한다.
+    윈도우 내 첫 틱에 슬롯당 1회만 발송한다 (free 플랜 슬립 catch-up).
     채널 ID 가 없으면 디스코드 웹훅으로 폴백한다.
     """
     now_kst = _kst_now()
