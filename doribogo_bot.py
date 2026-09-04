@@ -278,8 +278,7 @@ def generate_gemini_card_news(topic: str, items: list[dict]) -> str:
         'generationConfig': {'temperature': 0.2, 'maxOutputTokens': 4096},
     }
     import time as _time, random as _rand
-    model = _pick_gemini_model()
-    if model:
+    for model in _pick_gemini_models():
         for attempt in range(4):
             try:
                 url = f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}'
@@ -290,6 +289,8 @@ def generate_gemini_card_news(topic: str, items: list[dict]) -> str:
             except Exception as exc:
                 msg = str(exc)
                 print(f"[!] Gemini generation error ({model} try{attempt+1}): {exc}")
+                if '404' in msg:
+                    break  # 키/리전에 없는 모델 → 다음 후보로
                 if ('429' in msg or '503' in msg or '500' in msg) and attempt < 3:
                     _time.sleep(2 ** attempt + _rand.random())
                     continue
@@ -298,8 +299,8 @@ def generate_gemini_card_news(topic: str, items: list[dict]) -> str:
     return _offline(topic, items)
 
 
-def _pick_gemini_model() -> str | None:
-    """ListModels에서 generateContent 지원 flash 모델을 런타임에 선택 (하드코딩 만료 방지)."""
+def _pick_gemini_models() -> list[str]:
+    """ListModels에서 generateContent 지원 flash 모델 후보를 런타임에 선택 (하드코딩 만료 방지)."""
     try:
         url = f'https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_API_KEY}'
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -315,14 +316,11 @@ def _pick_gemini_model() -> str | None:
             cands.append(name)
         # 정식 > preview, full > lite 순으로 선호
         cands.sort(key=lambda n: ('preview' in n, 'lite' in n))
-        if cands:
-            print(f"[*] Gemini 모델 선택: {cands[0]}")
-            return cands[0]
-        print("[!] 사용 가능한 flash 모델 없음")
-        return None
+        print(f"[*] Gemini 모델 후보: {cands[:5]}")
+        return cands
     except Exception as exc:
         print(f"[!] Gemini ListModels 실패: {exc}")
-        return None
+        return []
 
 
 def search_shopping_deals(query: str, max_items: int = 3) -> list[dict]:
@@ -428,12 +426,19 @@ def run_full_doribogo(topic: str) -> str:
     return generate_gemini_card_news(topic, items)
 
 def send_discord(title,text):
-    if not DISCORD_WEBHOOK_URL: return False
-    payload={'username':'hodori bot','avatar_url':'https://avatars.githubusercontent.com/u/274787659?v=4','embeds':[{'title':title,'description':text[:4000],'color':0xFF6B00}]}
+    if not DISCORD_WEBHOOK_URL:
+        print("[!] DISCORD_WEBHOOK_URL 미설정")
+        return False
+    payload={'username':'hodori bot','avatar_url':'https://avatars.githubusercontent.com/u/274787659?v=4','embeds':[{'title':title,'description':(text or '')[:4000],'color':0xFF6B00}]}
     try:
         req=urllib.request.Request(DISCORD_WEBHOOK_URL,data=json.dumps(payload).encode(),headers={'Content-Type':'application/json'})
         with urllib.request.urlopen(req,timeout=10) as r: return r.status in (200,204)
-    except Exception: return False
+    except urllib.error.HTTPError as e:
+        print(f"[!] Discord 웹훅 HTTP {e.code}")
+        return False
+    except Exception as e:
+        print(f"[!] Discord 웹훅 실패: {type(e).__name__}")
+        return False
 
 def send_broadcast(title,text,chat_id=None):
     return send_discord(title,text)
