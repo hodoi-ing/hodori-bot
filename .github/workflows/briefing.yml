@@ -2,14 +2,14 @@ name: hodori scheduled briefing
 
 on:
   schedule:
-    - cron: "0 0 * * *"   # 09:00 KST 아침 브리핑
-    - cron: "0 9 * * *"   # 18:00 KST 저녁 브리핑
+    - cron: "43 23 * * *"   # 08:43 KST 아침 브리핑 (정각 피크 회피)
+    - cron: "17 9 * * *"    # 18:17 KST 저녁 브리핑 (정각 피크 회피)
   workflow_dispatch:
 
 jobs:
   briefing:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -19,14 +19,20 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Random Jitter Delay (트래픽 충돌 회피)
+        run: |
+          DELAY=$((RANDOM % 20 + 5))
+          echo "Waiting $DELAY seconds for network jitter mitigation..."
+          sleep $DELAY
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          python -m playwright install chromium --with-deps
 
-      - name: Send briefing via webhook
+      - name: Send briefing with self-healing fallback
         run: python briefing.py
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
